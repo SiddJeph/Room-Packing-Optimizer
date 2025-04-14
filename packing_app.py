@@ -2,18 +2,25 @@ import streamlit as st
 import pandas as pd
 import pulp
 
-st.title("🧳 Room Packing Optimizer (IP + DP)")
+st.set_page_config(page_title="Room Packing Optimizer", layout="wide")
+st.title("🧳 Room Packing Optimizer using IP & DP")
 
+# Sidebar inputs for constraints and costs
 st.sidebar.header("Baggage Constraints")
 W_c = st.sidebar.number_input("Cabin Weight Limit (kg)", value=15.0)
 Vol_c = st.sidebar.number_input("Cabin Volume Limit (liters)", value=44.0)
 W_ck = st.sidebar.number_input("Check-in Weight Limit (kg)", value=25.0)
 Vol_ck = st.sidebar.number_input("Check-in Volume Limit (liters)", value=116.13)
 
-st.sidebar.header("Movers Parameters")
-C_pm = st.sidebar.number_input("Cost per Liter (Packers & Movers)", value=1.0)
-M = st.sidebar.number_input("Penalty for Incompatible Items to Movers", value=100000.0)
+st.sidebar.header("Packers and Movers Parameters")
+C_pm = st.sidebar.number_input("Cost per Liter (₹)", value=1.0)
+M = st.sidebar.number_input("Penalty for Incompatible Items (₹)", value=100000.0)
 
+# Session state initialization
+if "items" not in st.session_state or not isinstance(st.session_state.items, list):
+    st.session_state.items = []
+
+# Item input form
 st.subheader("➕ Add Item Details")
 
 with st.form("item_form", clear_on_submit=True):
@@ -26,9 +33,6 @@ with st.form("item_form", clear_on_submit=True):
     apm = st.checkbox("Movers Compatible", value=True)
     submitted = st.form_submit_button("Add Item")
 
-if "items" not in st.session_state:
-    st.session_state.items = []
-
 if submitted and name:
     st.session_state.items.append({
         "Item": name,
@@ -40,14 +44,13 @@ if submitted and name:
         "Apm": int(apm)
     })
 
-if st.session_state.items:
+# Show item table
+if len(st.session_state.items) > 0:
     data = pd.DataFrame(st.session_state.items)
     st.markdown("### 📦 Item List")
-    st.dataframe(data)
+    st.dataframe(data, use_container_width=True)
 
-    # ========== Integer Programming ==========
-    st.markdown("## 🧠 Integer Programming Solution")
-
+    # Extract data for optimization
     items = data['Item'].tolist()
     v = data['Value'].tolist()
     w = data['Weight'].tolist()
@@ -57,11 +60,15 @@ if st.session_state.items:
     A_pm = data['Apm'].tolist()
     n = len(items)
 
+    # ========== Integer Programming ==========
+    st.markdown("## 🧠 Integer Programming Solution")
+
     prob = pulp.LpProblem("Packing_Optimization", pulp.LpMaximize)
     x_c = pulp.LpVariable.dicts("Cabin", items, cat='Binary')
     x_ck = pulp.LpVariable.dicts("Checkin", items, cat='Binary')
     x_pm = pulp.LpVariable.dicts("Movers", items, cat='Binary')
 
+    # Objective
     prob += (
         pulp.lpSum(v[i] * x_c[items[i]] for i in range(n)) +
         pulp.lpSum(v[i] * x_ck[items[i]] for i in range(n)) -
@@ -69,6 +76,7 @@ if st.session_state.items:
         M * pulp.lpSum((1 - A_pm[i]) * x_pm[items[i]] for i in range(n))
     )
 
+    # Constraints
     for i in range(n):
         prob += x_c[items[i]] + x_ck[items[i]] + x_pm[items[i]] <= 1
         prob += x_c[items[i]] <= A_c[i]
@@ -80,6 +88,7 @@ if st.session_state.items:
     prob += pulp.lpSum(w[i] * x_ck[items[i]] for i in range(n)) <= W_ck
     prob += pulp.lpSum(u[i] * x_ck[items[i]] for i in range(n)) <= Vol_ck
 
+    # Solve
     prob.solve()
 
     cabin_ip = [i for i in items if x_c[i].varValue == 1]
@@ -145,4 +154,4 @@ if st.session_state.items:
     st.write("**Movers Items (DP):**", movers_dp)
 
 else:
-    st.info("Add some items to begin solving.")
+    st.info("Add items using the form to start solving.")
